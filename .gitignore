@@ -108,4 +108,5 @@ venv.bak/
 Settings/local_settings.json
 Settings/server_settings.json
 Settings/monitored_market.json
+Settings/myContactList.json
 temp/*

@@ -12,6 +12,7 @@ import json
 import requests
 from subprocess import call
 import schedule
+import threading
 from NoFilaBot import NoFilaBot
 
 #Check if the given path is an absolute path
@@ -21,6 +22,10 @@ def createAbsolutePath(path):
 		path = os.path.join(currentDir, path)
 		
 	return path
+
+def run_threaded(job_func):
+    job_thread = threading.Thread(target=job_func)
+    job_thread.start()
 
 def test():
 	print("Sono stato chiamato!")
@@ -67,7 +72,7 @@ if len(sys.argv) > 1 and sys.argv[1]=='systemd':
     logging.info("Started by systemd using argument: "+sys.argv[1])
 
 #Schedule actions
-schedule.every(config['local']['refresh_rate']).minutes.do(nfb.updateStatus)
+schedule.every(config['local']['refresh_rate']).minutes.do(run_threaded, nfb.updateStatus)
 logging.info("Update every "+str(config['local']['refresh_rate'])+" minutes")
 # ~ schedule.every().minutes.do(nfb.updateStatus)
 
@@ -75,7 +80,7 @@ logging.info("Update every "+str(config['local']['refresh_rate'])+" minutes")
 nfb.start()
 
 #DELETE - FOR Debug only
-# ~ nfb.updateStatus()
+run_threaded(nfb.updateStatus())
 # ~ exit()
 
 

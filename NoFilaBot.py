@@ -2,7 +2,6 @@
 import json
 import os
 import logging
-import yaml
 from time import sleep
 import requests
 import string
@@ -40,7 +39,8 @@ class NoFilaBot:
 		self.mySupermarkets = config['supermarkets']
 		self.mySupermarketsList = self.getMySuperMarket()
 		self.logging.info('Supermarkets list extracted')
-		self.readContactList(createAbsolutePath(os.path.join(all_settings_dir,contact_list_path)))
+		self.contactListPath = createAbsolutePath(os.path.join(all_settings_dir,contact_list_path))
+		self.readContactList()
 		
 		#Connecting to Telegram
 		self.TmUpdater = Updater(self.localParameters['telegram_token'], use_context=True)
@@ -49,20 +49,25 @@ class NoFilaBot:
 		self.logging.info("Connected succesfully to Telegram")
 
 	#Read my contact list
-	def readContactList(self, path):
+	def readContactList(self):
 		try:
-			with open(path) as json_file:
+			with open(self.contactListPath) as json_file:
 				self.myContactList = json.load(json_file)
 		except ValueError:
 			self.logging.warning('Cannot decode the stored contact list - Using an empty one')
-			print("Invalid json ["+str(path)+"] - Use empty one")
+			print("Invalid json ["+str(self.contactListPath)+"] - Use empty one")
 			self.myContactList = []
 		except FileNotFoundError:
-			self.logging.warning('Stored contact list not found- Using an empty one')
-			print("Contact list not existet ["+str(path)+"] - Use empty one")
+			self.logging.warning('Stored contact list not found - Using an empty one')
+			print("Contact list not existent ["+str(self.contactListPath)+"] - Using an empty one")
 			self.myContactList = []
 		self.logging.info('Contact list loaded')
 		return self.myContactList
+	
+	#Updates the contact list
+	def storeContactList(self):
+		with open(self.contactListPath, "w") as json_file:
+				json.dump(self.myContactList, json_file)
 	
 	#The complete function that iterate over all values
 	def updateStatus(self):
@@ -74,7 +79,8 @@ class NoFilaBot:
 		for relSup in relevant:
 			self.sendNotify(relSup['name'], relSup['minutes'], relSup['people'])
 		if not len(relevant):
-			self.sendNotify("Nessun aggiornamento rilevante, continuo a monitorare")
+			self.logging.info("Nessun aggiornamento rilevante, continuo a monitorare")
+		self.logging.info('Starting periodic update')
 		
 	#Send the request to the server to update the list of open supermarket
 	def requestUpdateSupermarkets(self):
@@ -88,12 +94,6 @@ class NoFilaBot:
 			'Referer': 'https://filaindiana.it/' 
 		}
 		r = requests.post(self.serverInfo['server_url'], data=json.dumps(payload), headers=h)
-		# ~ r = requests.post(self.serverInfo['server_url'], data=json.dumps(payload))
-		
-		# ~ self.logging.info(str(payload))
-		# ~ self.logging.info(str(self.serverInfo['server_url']))
-		# ~ self.logging.info("Response received ["+r.text+"]")
-		
 		return r.json()
 		
 	#Parse all the give supermarkets to discover relevant updates
@@ -104,7 +104,7 @@ class NoFilaBot:
 				lastUpdate = self.parseTime(sm['state']['updated_at'])
 				elapsed = datetime.now() - lastUpdate
 				#Check if enough time has passed
-				if elapsed.total_seconds() < self.localParameters['refresh_rate']*60:
+				if elapsed.total_seconds() < self.localParameters['refresh_rate']*60*100000:
 					#Check if enough time has passed
 					relevant.append({
 						'name': sm['supermarket']['market_id'], 
@@ -132,18 +132,24 @@ class NoFilaBot:
 	
 	#Notify all open chat with this bot	
 	def sendNotify(self, supermarket, minutes, people):
+		self.logging.info('Try sending notify')
 		for user in self.myContactList:
-			self.sendMessage(
-				self.mySupermarketsList[supermarket]+" - Circa "+str(people)+" persone in fila (stimati "+str(minutes)+" minuti di coda)",
-				user
-			)
-			self.logging.info('Notify sent to '+str(user))
+			self.logging.info('Sending update to: '+str(user))
+			if supermarket in self.mySupermarketsList.keys():
+				self.sendMessage(
+					str(self.mySupermarketsList[supermarket])+" - Circa "+str(people)+" persone in fila (stimati "+str(minutes)+" minuti di coda)",
+					user
+				)
+				self.logging.info('Notify sent to '+str(user))
+			else:
+				self.logging.info('Ignoring this supermarket ['+supermarket+']')			
 			
 	#Send the selected message
 	def sendMessage(self, message, chat=None):
 		mex = str(message)[:4095]
 		if not chat:
-			chat = self.message.getChat()
+			self.logging.error("Missing chat - Message not sent")
+			return
 		self.bot.sendMessage(chat, mex)
 	
 	#Enable the deamon to answer to message
@@ -180,4 +186,5 @@ class NoFilaBot:
 			update.message.reply_text("Bentornato " + str(update.effective_chat.first_name))
 		else:
 			self.myContactList.append(update.effective_chat.id)
+			self.storeContactList()
 			update.message.reply_text("Ciao "+str(update.effective_chat.first_name)+", da adesso sarai aggiornati sulla fila dei supermercati nei dintorni")
