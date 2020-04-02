@@ -72,6 +72,9 @@ class NoFilaBot:
 	#The complete function that iterate over all values
 	def updateStatus(self):
 		self.logging.info('Starting periodic update')
+		if not len(self.myContactList):
+			self.logging.info('No one to update - Skip refresh')
+			return
 		sm = self.requestUpdateSupermarkets()
 		self.logging.info('Update received')
 		relevant = self.parseAllSupermarkets(sm)
@@ -168,23 +171,34 @@ class NoFilaBot:
 	#Define the approriate handlers
 	def createHandlers(self):
 		#Commands
-		self.TmDispatcher.add_handler(CommandHandler("start", self.welcomeMessage))
+		self.TmDispatcher.add_handler(CommandHandler("start", self.startHandler))
+		self.TmDispatcher.add_handler(CommandHandler("stop", self.stopHandler))
 		self.logging.info("createHandlers - Created handlers for command")
 		#Text message
-		self.TmDispatcher.add_handler(MessageHandler(Filters.text, self.manageText))
+		self.TmDispatcher.add_handler(MessageHandler(Filters.text, self.textHandler))
 		self.logging.info("createHandlers - Created handlers for text")
 	
 	#Handle a received message
-	def manageText(self, msg):
-		self.loggin.info("Received text message - Ignoring")
-		print("Press /start to enable this bot")
+	def textHandler(self, update=None, context=None):
+		self.logging.info("Received text message - Ignoring")
+		update.message.reply_text("Press /start to enable this bot")
 	
-	#Answers with a welcome message
-	def welcomeMessage(self, update=None, context=None):
-		self.logging.info("welcomeMessage - Bot started by: "+str(update.effective_chat))
+	#Start the subscription to the bot
+	def startHandler(self, update=None, context=None):
+		self.logging.info("startHandler - Bot started by: "+str(update.effective_chat))
 		if update.effective_chat.id in self.myContactList:
 			update.message.reply_text("Bentornato " + str(update.effective_chat.first_name))
 		else:
 			self.myContactList.append(update.effective_chat.id)
 			self.storeContactList()
-			update.message.reply_text("Ciao "+str(update.effective_chat.first_name)+", da adesso sarai aggiornati sulla fila dei supermercati nei dintorni")
+			update.message.reply_text("Ciao "+str(update.effective_chat.first_name)+", da adesso sarai aggiornati sulla fila dei supermercati nei dintorni. Premi /stop per non ricevere più notifiche")
+
+	#Stop the subscription to the bot
+	def stopHandler(self, update=None, context=None):
+		self.logging.info("stopHandler - Bot stopped by: "+str(update.effective_chat))
+		if update.effective_chat.id in self.myContactList:
+			self.myContactList.remove(update.effective_chat.id)
+			self.storeContactList()
+			self.logging.info("stopHandler - "+str(update.effective_chat.id)+" removed from contact list")
+		update.message.reply_text("Ciao "+str(update.effective_chat.first_name)+", smetto di inviarti notifiche. Premi /start per ricominciare ad essere aggiornato")
+		
