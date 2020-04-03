@@ -23,12 +23,10 @@ def createAbsolutePath(path):
 		
 	return path
 
+#Used to run scheduled task as threads
 def run_threaded(job_func):
     job_thread = threading.Thread(target=job_func)
     job_thread.start()
-
-def test():
-	print("Sono stato chiamato!")
 
 #Defining local parameters
 all_settings_dir 	= "Settings"

@@ -11,7 +11,8 @@ import subprocess
 import random
 import time
 import json
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+import telegram
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Defaults
 from subprocess import call
 
 #Check if the given path is an absolute path
@@ -19,7 +20,6 @@ def createAbsolutePath(path):
 	if not os.path.isabs(path):
 		currentDir = os.path.dirname(os.path.realpath(__file__))
 		path = os.path.join(currentDir, path)
-		
 	return path
 
 # The main class
@@ -41,6 +41,7 @@ class NoFilaBot:
 		self.logging.info('Supermarkets list extracted')
 		self.contactListPath = createAbsolutePath(os.path.join(all_settings_dir,contact_list_path))
 		self.readContactList()
+		self.smCache = {}
 		
 		#Connecting to Telegram
 		self.TmUpdater = Updater(self.localParameters['telegram_token'], use_context=True)
@@ -69,25 +70,53 @@ class NoFilaBot:
 		with open(self.contactListPath, "w") as json_file:
 				json.dump(self.myContactList, json_file)
 	
-	#The complete function that iterate over all values
-	def updateStatus(self):
+	#Enable the deamon to answer to message
+	def start(self):
+		#Defining handlers
+		self.createHandlers()
+		self.logging.info("Bot handlers created")
+		print("Bot handlers created")
+		#Starting bot
+		self.TmUpdater.start_polling()
+		self.logging.info("Bot is now polling for new messages")
+	
+		#The complete function that iterate over all values
+	def updateStatus(self, useCache = False, peopleToNotify = None):
 		self.logging.info('Starting periodic update')
-		if not len(self.myContactList):
+		if peopleToNotify is None:
+			#If no specific user are defined broadcast the message
+			peopleToNotify = self.myContactList
+		elif type(peopleToNotify) is not list:
+			#If passed a single user transform to list
+			peopleToNotify = [peopleToNotify]
+		
+		#Check if is requested to notify someone
+		if not len(peopleToNotify):
 			self.logging.info('No one to update - Skip refresh')
 			return
-		sm = self.requestUpdateSupermarkets()
-		self.logging.info('Update received')
-		relevant = self.parseAllSupermarkets(sm)
+		
+		#Check if a cache refresh is needed
+		if not useCache:
+			self.smCache = self.requestUpdateSupermarkets()
+			self.logging.info('Cache refreshed')
+		
+		#Parse data
+		relevant = self.parseAllSupermarkets(self.smCache)
 		self.logging.info('Found '+str(len(relevant))+' relevant updates')
+		
+		#Send the notify to subscribed users
 		for relSup in relevant:
-			self.sendNotify(relSup['name'], relSup['minutes'], relSup['people'])
-		if not len(relevant):
-			self.logging.info("Nessun aggiornamento rilevante, continuo a monitorare")
-		self.logging.info('Starting periodic update')
+			for user in peopleToNotify:
+				self.sendNotify(user, relSup['name'], relSup['minutes'], relSup['people'])
+		
 		
 	#Send the request to the server to update the list of open supermarket
 	def requestUpdateSupermarkets(self):
-		payload = {'lat': self.serverInfo['lat'], 'long': self.serverInfo['long'], 'debug': self.serverInfo['debug']}
+		payload = {
+			'lat': self.localParameters['lat'], 
+			'long': self.localParameters['long'], 
+			'debug': self.serverInfo['debug']
+		}
 		h = {
 			'User-Agent': self.serverInfo['user_agent'],
 			'Accept': 'application/json, text/javascript, */*; q=0.01',
@@ -96,7 +125,7 @@ class NoFilaBot:
 			'Origin': 'https://filaindiana.it',
 			'Referer': 'https://filaindiana.it/' 
 		}
-		r = requests.post(self.serverInfo['server_url'], data=json.dumps(payload), headers=h)
+		r = requests.post(self.serverInfo['server_handler'], data=json.dumps(payload), headers=h)
 		return r.json()
 		
 	#Parse all the give supermarkets to discover relevant updates
@@ -107,7 +136,7 @@ class NoFilaBot:
 				lastUpdate = self.parseTime(sm['state']['updated_at'])
 				elapsed = datetime.now() - lastUpdate
 				#Check if enough time has passed
-				if elapsed.total_seconds() < self.localParameters['refresh_rate']*60*100000:
+				if elapsed.total_seconds() < self.localParameters['max_age']*60:
 					#Check if enough time has passed
 					relevant.append({
 						'name': sm['supermarket']['market_id'], 
@@ -134,45 +163,36 @@ class NoFilaBot:
 		return dict((i['market_id'], i['user_friendly_name']) for i in self.mySupermarkets)
 	
 	#Notify all open chat with this bot	
-	def sendNotify(self, supermarket, minutes, people):
-		self.logging.info('Try sending notify')
-		for user in self.myContactList:
-			self.logging.info('Sending update to: '+str(user))
-			if supermarket in self.mySupermarketsList.keys():
-				self.sendMessage(
-					str(self.mySupermarketsList[supermarket])+" - Circa "+str(people)+" persone in fila (stimati "+str(minutes)+" minuti di coda)",
-					user
-				)
-				self.logging.info('Notify sent to '+str(user))
-			else:
-				self.logging.info('Ignoring this supermarket ['+supermarket+']')			
-			
+	def sendNotify(self, user, supermarket, minutes, people):
+		self.logging.info('Sending update to: '+str(user))
+		if supermarket in self.mySupermarketsList.keys():
+			self.sendMessage(
+				"*"+self.getSupermarketName(supermarket)+"* \- Circa *"+str(people)+" persone* in fila \(stimati "+str(minutes)+" minuti di coda\)",
+				user,
+				telegram.ParseMode.MARKDOWN_V2
+			)
+			self.logging.info('Notify sent to '+str(user))
+		else:
+			self.logging.info('Ignoring this supermarket ['+supermarket+']')			
+	
+	#Extract the supermarket from the given list
+	def getSupermarketName(self, supermarket):
+		return str(self.mySupermarketsList[supermarket]).replace("-", "\-")	
+		
 	#Send the selected message
-	def sendMessage(self, message, chat=None):
+	def sendMessage(self, message, chat=None, parse_mode=None):
 		mex = str(message)[:4095]
 		if not chat:
 			self.logging.error("Missing chat - Message not sent")
 			return
-		self.bot.sendMessage(chat, mex)
-	
-	#Enable the deamon to answer to message
-	def start(self):
-		#Defining handlers
-		self.createHandlers()
-		self.logging.info("Bot handlers created")
-		print("Bot handlers created")
-		#Starting bot
-		self.TmUpdater.start_polling()
-		self.logging.info("Bot is now polling for new messages")
-		
-		#No need to put the bot in idle
-		# ~ self.TmUpdater.idle()
+		self.bot.sendMessage(chat, mex, parse_mode=parse_mode)
 	
 	#Define the approriate handlers
 	def createHandlers(self):
 		#Commands
 		self.TmDispatcher.add_handler(CommandHandler("start", self.startHandler))
 		self.TmDispatcher.add_handler(CommandHandler("stop", self.stopHandler))
+		self.TmDispatcher.add_handler(CommandHandler("report", self.reportHandler))
 		self.logging.info("createHandlers - Created handlers for command")
 		#Text message
 		self.TmDispatcher.add_handler(MessageHandler(Filters.text, self.textHandler))
@@ -187,11 +207,12 @@ class NoFilaBot:
 	def startHandler(self, update=None, context=None):
 		self.logging.info("startHandler - Bot started by: "+str(update.effective_chat))
 		if update.effective_chat.id in self.myContactList:
-			update.message.reply_text("Bentornato " + str(update.effective_chat.first_name))
+			update.message.reply_text("Ciao " + str(update.effective_chat.first_name) + ", controllo se ci sono nuove segnalazioni")
 		else:
 			self.myContactList.append(update.effective_chat.id)
 			self.storeContactList()
 			update.message.reply_text("Ciao "+str(update.effective_chat.first_name)+", da adesso sarai aggiornati sulla fila dei supermercati nei dintorni. Premi /stop per non ricevere più notifiche")
+		self.updateStatus(useCache=True, peopleToNotify=update.effective_chat.id)
 
 	#Stop the subscription to the bot
 	def stopHandler(self, update=None, context=None):
@@ -201,4 +222,11 @@ class NoFilaBot:
 			self.storeContactList()
 			self.logging.info("stopHandler - "+str(update.effective_chat.id)+" removed from contact list")
 		update.message.reply_text("Ciao "+str(update.effective_chat.first_name)+", smetto di inviarti notifiche. Premi /start per ricominciare ad essere aggiornato")
-		
+	
+	#Used to report the supermarket queue status
+	def reportHandler(self, update=None, context=None):
+		self.logging.info("reportHandler - Report requested by: "+str(update.effective_chat))
+		update.message.reply_text(
+			"Visita ["+self.serverInfo['report_site_name']+"]("+self.serverInfo['report_site_url']+") per inviare le segnalazioni",
+			parse_mode=telegram.ParseMode.MARKDOWN_V2
+		)
