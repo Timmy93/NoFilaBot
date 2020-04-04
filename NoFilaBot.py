@@ -12,7 +12,7 @@ import random
 import time
 import json
 import telegram
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Defaults
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 from subprocess import call
 
 #Check if the given path is an absolute path
@@ -96,7 +96,7 @@ class NoFilaBot:
 			return
 		
 		#Check if a cache refresh is needed
-		if not useCache:
+		if not useCache or len(peopleToNotify) < 1:
 			self.smCache = self.requestUpdateSupermarkets()
 			self.logging.info('Cache refreshed')
 		
