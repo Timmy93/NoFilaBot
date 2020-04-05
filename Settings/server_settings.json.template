@@ -1,0 +1,8 @@
+{
+  "server_handler":"https://13uf82pp52.execute-api.eu-central-1.amazonaws.com/prod/getNearbyClassifiedSupermarketsV2",
+  "user_agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:74.0) Gecko/20100101 Firefox/74.0",
+  "ref":"https://filaindiana.it",
+  "report_site_name":"Filaindiana",
+  "report_site_url":"https://filaindiana.it",
+  "debug":"false"
+}

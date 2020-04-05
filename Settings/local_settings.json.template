@@ -1,0 +1,9 @@
+{
+  "telegram_token" : "MY_TELEGRAM_TOKEN",
+  "refresh_rate" : 15,
+  "max_people": 11,
+  "max_wait" : 22,
+  "lat" : 45.464211,
+  "long" : 9.191383,
+  "max_age" : 240
+}
