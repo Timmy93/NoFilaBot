@@ -78,7 +78,7 @@ logging.info("Update every "+str(config['local']['refresh_rate'])+" minutes")
 nfb.start()
 
 #DELETE - FOR Debug only
-run_threaded(nfb.updateStatus())
+run_threaded(nfb.updateStatus(disableNotify=True))
 # ~ exit()
 
 

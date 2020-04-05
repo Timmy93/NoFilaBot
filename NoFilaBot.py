@@ -13,9 +13,9 @@ import time
 import json
 import telegram
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from telegram.utils import helpers
 from subprocess import call
 from DbConnector import DbConnector
-# ~ import emoji
 
 #Check if the given path is an absolute path
 def createAbsolutePath(path):
@@ -124,34 +124,41 @@ class NoFilaBot:
 		self.logging.info("Bot is now polling for new messages")
 	
 		#The complete function that iterate over all values
-	def updateStatus(self, useCache = False, peopleToNotify = None):
-		self.logging.info('Starting periodic update')
+	def updateStatus(self, useCache = False, peopleToNotify = None, disableNotify = False):
 		if peopleToNotify is None:
 			#If no specific user are defined broadcast the message
 			peopleToNotify = self.myContactList
+			self.logging.info('updateStatus - Starting periodic update broadcasting')
 		elif type(peopleToNotify) is not list:
 			#If passed a single user transform to list
 			peopleToNotify = [peopleToNotify]
+			self.logging.info('updateStatus - Notifing selected chat')
+		else:
+			self.logging.info('updateStatus - Broadcasting to given chats')
 		
 		#Check if is requested to notify someone
 		if not len(peopleToNotify):
-			self.logging.info('No one to update - Skip refresh')
+			self.logging.info('updateStatus - No one to update - Skip refresh')
 			return
-		
+			
 		#Check if a cache refresh is needed
 		if not useCache or len(peopleToNotify) < 1:
 			self.smCache = self.requestUpdateSupermarkets()
-			self.logging.info('Cache refreshed')
+			self.logging.info('updateStatus - Cache refreshed')
 		
 		#Parse data
 		relevant = self.parseAllSupermarkets(self.smCache)
-		self.logging.info('Found '+str(len(relevant))+' relevant updates')
+		self.logging.info('updateStatus - Found '+str(len(relevant))+' relevant updates')
+			
+		#Check if the notify is required
+		if disableNotify:
+			self.logging.info('updateStatus - Update without notify refreshed')
+			return relevant
 		
 		#Send the notify to subscribed users
 		for relSup in relevant:
 			for user in peopleToNotify:
-				self.sendNotify(user, relSup['name'], relSup['minutes'], relSup['people'])
-		
+				self.sendNotify(user, relSup)		
 		return relevant
 		
 	#Send the request to the server to update the list of open supermarket
@@ -176,14 +183,17 @@ class NoFilaBot:
 	def parseAllSupermarkets(self, dct):
 		relevant = []
 		for sm in dct:
+			#Check the queue and wait time status
 			if 'state' in sm and (sm['state']['queue_wait_minutes'] < self.localParameters['max_wait'] or sm['state']['queue_size_people'] < self.localParameters['max_people']):
 				lastUpdate = self.parseTime(sm['state']['updated_at'])
 				elapsed = datetime.now() - lastUpdate
-				#Check if enough time has passed
+				#Check how old is the last report
 				if elapsed.total_seconds() < self.localParameters['max_age']*60:
 					#Check if enough time has passed
 					relevant.append({
-						'name': sm['supermarket']['market_id'], 
+						'id': sm['supermarket']['market_id'], 
+						'name': sm['supermarket']['name'],
+						'address': sm['supermarket']['address'],
 						'minutes': sm['state']['queue_wait_minutes'], 
 						'people': sm['state']['queue_size_people']
 					})
@@ -207,22 +217,26 @@ class NoFilaBot:
 	def getMySuperMarket(self):
 		return dict((i['market_id'], i['user_friendly_name']) for i in self.mySupermarkets)
 	
+	
+	
 	#Notify all open chat with this bot	
-	def sendNotify(self, user, supermarket, minutes, people):
+	def sendNotify(self, user, info):
 		self.logging.info('Sending update to: '+str(user))
-		if supermarket in self.mySupermarketsList.keys():
+		if info['id'] in self.mySupermarketsList.keys():
+			nameToUse = self.mySupermarketsList[supermarket]
+		else:
+			nameToUse = info['name']+"("+str(info['address'])+")"
+			
+		#Check if there is need to send notify for all supermarkets
+		if not self.localParameters['filter_only_my_markets']:
 			self.sendMessage(
-				"*"+self.getSupermarketName(supermarket)+"* \- Circa *"+str(people)+" persone* in fila \(stimati "+str(minutes)+" minuti di coda\)",
+				"*"+helpers.escape_markdown(nameToUse, 2)+"* \- Circa *"+str(info['people'])+" persone* in fila \(stimati "+str(info['minutes'])+" minuti di coda\)",
 				user,
 				telegram.ParseMode.MARKDOWN_V2
 			)
-			self.logging.info('Notify sent to '+str(user))
+			self.logging.info('Notify sent to '+str(user))		
 		else:
-			self.logging.info('Ignoring this supermarket ['+supermarket+']')			
-	
-	#Extract the supermarket from the given list
-	def getSupermarketName(self, supermarket):
-		return str(self.mySupermarketsList[supermarket]).replace("-", "\-")	
+			self.logging.info('Ignoring this supermarket ['+info['id']+']')
 		
 	#Send the selected message
 	def sendMessage(self, message, chat=None, parse_mode=None):
@@ -230,7 +244,12 @@ class NoFilaBot:
 		if not chat:
 			self.logging.error("Missing chat - Message not sent")
 			return
-		self.bot.sendMessage(chat, mex, parse_mode=parse_mode)
+		try:
+			self.bot.sendMessage(chat, mex, parse_mode=parse_mode)
+		except telegram.error.BadRequest:
+			self.logging.error("Cannot send message to chat ["+str(chat)+"] - Skip")
+		except telegram.error.Unauthorized:
+			self.logging.error("Bot blocked by chat ["+str(chat)+"] - Skip")
 	
 	#Define the approriate handlers
 	def createHandlers(self):
@@ -270,7 +289,7 @@ class NoFilaBot:
 		if update.effective_chat.id in self.myContactList:
 			self.removeFromContactList(update.effective_chat.id)
 			self.logging.info("stopHandler - "+str(update.effective_chat.id)+" removed from contact list")
-		update.message.reply_text("Ciao 👋, niente più notifiche 🔕\nPremi 👉 /start per ricominciare ad essere aggiornato 🔔")
+		update.message.reply_text("Va bene 👍, niente notifiche 🔕\nPremi 👉 /start per ricominciare ad essere aggiornato 🔔")
 	
 	#Used to report the supermarket queue status
 	def reportHandler(self, update=None, context=None):

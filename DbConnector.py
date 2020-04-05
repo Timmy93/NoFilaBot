@@ -73,8 +73,11 @@ class DbConnector:
 		self.logging.info("Db connected")
 		#Execute
 		sql = "SELECT * FROM users"
-		c_list = cursor.execute(sql)
-		c_list = c_list.fetchall()
+		res = cursor.execute(sql)
+		#Create list from query
+		c_list = []
+		for row in res:
+			c_list.append(row[0])
 		#Close connection
 		conn.commit()
 		conn.close()

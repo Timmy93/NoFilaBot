@@ -5,5 +5,6 @@
   "max_wait" : 22,
   "lat" : 45.464211,
   "long" : 9.191383,
-  "max_age" : 240
+  "max_age" : 240,
+  "filter_only_my_markets" : false
 }
