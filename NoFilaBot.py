@@ -14,6 +14,8 @@ import json
 import telegram
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 from subprocess import call
+from DbConnector import DbConnector
+# ~ import emoji
 
 #Check if the given path is an absolute path
 def createAbsolutePath(path):
@@ -29,6 +31,7 @@ class NoFilaBot:
 	def __init__(self, config, loggingHandler):
 		all_settings_dir 	= "Settings"
 		contact_list_path	= "myContactList.json"
+		noFilaBot_db		= "NoFilaBot.db"
 		
 		self.config = config
 		self.logging = loggingHandler
@@ -37,8 +40,16 @@ class NoFilaBot:
 		self.localParameters = config['local']
 		self.serverInfo = config['server']
 		self.mySupermarkets = config['supermarkets']
+		noFilaBot_db = createAbsolutePath(os.path.join(all_settings_dir,noFilaBot_db))
 		self.mySupermarketsList = self.getMySuperMarket()
 		self.logging.info('Supermarkets list extracted')
+		
+		#Insert default values
+		if not 'json_db' in self.localParameters:
+			self.localParameters['json_db'] = False
+		
+		#Define Contact List		
+		self.db = DbConnector(noFilaBot_db, self.logging)
 		self.contactListPath = createAbsolutePath(os.path.join(all_settings_dir,contact_list_path))
 		self.readContactList()
 		self.smCache = {}
@@ -51,6 +62,15 @@ class NoFilaBot:
 
 	#Read my contact list
 	def readContactList(self):
+		if self.localParameters['json_db']:
+			return self.readJsonContactList()
+		else :
+			self.myContactList = self.db.getContacts()
+			self.logging.info('Contact list loaded')
+			return self.myContactList
+	
+	#Read my contact list as a json
+	def readJsonContactList(self):
 		try:
 			with open(self.contactListPath) as json_file:
 				self.myContactList = json.load(json_file)
@@ -66,7 +86,30 @@ class NoFilaBot:
 		return self.myContactList
 	
 	#Updates the contact list
-	def storeContactList(self):
+	def dumpContactList(self):
+		self.storeJsonContactList()
+	
+	#Add a contact to the contact list
+	def addToContactList(self, user):
+		self.myContactList.append(user)
+		if self.localParameters['json_db']:
+			self.dumpContactList()
+			self.logging.info('Appended to JSON contact list')
+		else:
+			print("User to add: "+str(user))
+			self.db.insertContact(user)
+			self.logging.info('Appended to DB contact list')
+	
+	#Remove a contact from the contact list
+	def removeFromContactList(self, user):
+		self.myContactList.remove(user)
+		if self.localParameters['json_db']:
+			self.dumpContactList()
+		else:
+			self.db.removeContact(user)
+		
+	#Updates the json contact list
+	def storeJsonContactList(self):
 		with open(self.contactListPath, "w") as json_file:
 				json.dump(self.myContactList, json_file)
 	
@@ -109,6 +152,7 @@ class NoFilaBot:
 			for user in peopleToNotify:
 				self.sendNotify(user, relSup['name'], relSup['minutes'], relSup['people'])
 		
+		return relevant
 		
 	#Send the request to the server to update the list of open supermarket
 	def requestUpdateSupermarkets(self):
@@ -144,12 +188,13 @@ class NoFilaBot:
 						'people': sm['state']['queue_size_people']
 					})
 				else:
-					self.logging.info("Elapsed "+str(elapsed.total_seconds())+" seconds from last update - Skip")
+					self.logging.info(str(sm['supermarket']['name'])+"("+str(sm['supermarket']['address'])+") - "+str(int(round(elapsed.total_seconds()/60)))+" minutes from last update - Skip")
 			else:
 				if not 'state' in sm:
-					self.logging.info("This supermarket has never received an update")
+					self.logging.info(str(sm['supermarket']['name'])+"("+str(sm['supermarket']['address'])+") has never received an update")
 				else:
-					self.logging.info("Supermarket - People: "+str(sm['state']['queue_size_people'])+" - Wait: "+str(sm['state']['queue_wait_minutes']))
+					self.logging.info(str(sm['supermarket']['name'])+"("+str(sm['supermarket']['address'])+") - People: "+str(sm['state']['queue_size_people'])+" - Wait: "+str(sm['state']['queue_wait_minutes']))
+		self.logging.info("parseAllSupermarkets - Analyzed "+str(len(dct))+" supermarkets")
 		return relevant
 	
 	#Parse the time in the log
@@ -201,32 +246,36 @@ class NoFilaBot:
 	#Handle a received message
 	def textHandler(self, update=None, context=None):
 		self.logging.info("Received text message - Ignoring")
-		update.message.reply_text("Press /start to enable this bot")
+		update.message.reply_text(
+			"Premi 👉 /start per iniziare a monitorare i supermercati 🕵️🛒🔔\n\nVisita ["+self.serverInfo['report_site_name']+"]("+self.serverInfo['report_site_url']+") per inviare le segnalazioni 🙋",
+			parse_mode=telegram.ParseMode.MARKDOWN_V2
+		)
 	
 	#Start the subscription to the bot
 	def startHandler(self, update=None, context=None):
 		self.logging.info("startHandler - Bot started by: "+str(update.effective_chat))
 		if update.effective_chat.id in self.myContactList:
-			update.message.reply_text("Ciao " + str(update.effective_chat.first_name) + ", controllo se ci sono nuove segnalazioni")
+			update.message.reply_text("Ciao " + str(update.effective_chat.first_name) + " 👋, controllo se ci sono nuove segnalazioni 🕵️🛒")
 		else:
-			self.myContactList.append(update.effective_chat.id)
-			self.storeContactList()
-			update.message.reply_text("Ciao "+str(update.effective_chat.first_name)+", da adesso sarai aggiornati sulla fila dei supermercati nei dintorni. Premi /stop per non ricevere più notifiche")
-		self.updateStatus(useCache=True, peopleToNotify=update.effective_chat.id)
-
+			self.addToContactList(update.effective_chat.id)
+			update.message.reply_text("Ciao "+str(update.effective_chat.first_name)+" 👋, da adesso sarai aggiornato 🔔 sulla fila dei supermercati nei dintorni. 🕵️🛒\nPremi 🔕 /stop per non ricevere più notifiche")
+		relevant = self.updateStatus(useCache=True, peopleToNotify=update.effective_chat.id)
+		#Notify if no useful supermarket has been found
+		if not len(relevant):
+			update.message.reply_text("Tutti i supermercati nei tuoi dintorni sono chiusi oppure pieni.\nContinuo a controllare! 🕵️🛒\nPremi 🔕 /stop per non ricevere più notifiche")
+		
 	#Stop the subscription to the bot
 	def stopHandler(self, update=None, context=None):
 		self.logging.info("stopHandler - Bot stopped by: "+str(update.effective_chat))
 		if update.effective_chat.id in self.myContactList:
-			self.myContactList.remove(update.effective_chat.id)
-			self.storeContactList()
+			self.removeFromContactList(update.effective_chat.id)
 			self.logging.info("stopHandler - "+str(update.effective_chat.id)+" removed from contact list")
-		update.message.reply_text("Ciao "+str(update.effective_chat.first_name)+", smetto di inviarti notifiche. Premi /start per ricominciare ad essere aggiornato")
+		update.message.reply_text("Ciao 👋, niente più notifiche 🔕\nPremi 👉 /start per ricominciare ad essere aggiornato 🔔")
 	
 	#Used to report the supermarket queue status
 	def reportHandler(self, update=None, context=None):
 		self.logging.info("reportHandler - Report requested by: "+str(update.effective_chat))
 		update.message.reply_text(
-			"Visita ["+self.serverInfo['report_site_name']+"]("+self.serverInfo['report_site_url']+") per inviare le segnalazioni",
+			"Visita ["+self.serverInfo['report_site_name']+"]("+self.serverInfo['report_site_url']+") per inviare le segnalazioni 🙋",
 			parse_mode=telegram.ParseMode.MARKDOWN_V2
 		)

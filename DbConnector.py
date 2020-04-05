@@ -2,46 +2,80 @@
 import sqlite3
 import os
 
-#Check if the given path is an absolute path
-def createAbsolutePath(path):
-	if not os.path.isabs(path):
-		currentDir = os.path.dirname(os.path.realpath(__file__))
-		path = os.path.join(currentDir, path)
-	return path
-
 # The main class
 class DbConnector:
 	
 	#Load config and psw
-	def __init__(self, config, loggingHandler):
-		dbName 	= "NoFilaDB.db"
+	def __init__(self, dbPath, loggingHandler):
+		self.dbName = dbPath
 		self.logging = loggingHandler
-		
-		self.conn = sqlite3.connect(dbName)
+		dbToInitialize = self.dbExists()
+				
 		#Initialize db if missing
-		if not os.path.isfile(dbName):
+		if not dbToInitialize:
 			self.createTables()
-		self.cursor = self.conn.cursor()
-		
-		self.logging.info("Db connection created")
+			self.logging.info("All tables created")
+	
+	def dbExists(self):
+		return os.path.isfile(self.dbName)
 
 	#Create all tables
 	def createTables(self):
-		self.createContactListTable()
+		#Start connection
+		conn = sqlite3.connect(self.dbName)
+		cursor = conn.cursor()
+		self.logging.info("Db connected")
+		#Create here tables
+		self.createContactListTable(cursor)
+		#Close connection
+		conn.commit()
+		conn.close()
 		
-	#Create the table to 
-	def createContactListTable(self):
-		sql = "CREATE TABLE users(chat_id varchar(64))"
-		self.cursor.execute(sql)
+	#Create the table to store the chat
+	def createContactListTable(self, cursor):
+		sql = "CREATE TABLE users(chat_id varchar(64), UNIQUE(chat_id))"
+		cursor.execute(sql)
 
 	#Add an element
 	def insertContact(self, chatId):
-		sql = "INSERT INTO users values(?)"
+		#Start connection
+		conn = sqlite3.connect(self.dbName)
+		cursor = conn.cursor()
+		self.logging.info("Db connected")
+		sql = "INSERT OR IGNORE INTO users values(?)"
 		if type(chatId) is not list:
-			chatId = [chatId]
-		self.cursor.executemany(insertValues, chatId)
+			chatId = [str(chatId)]
+		cursor.executemany(sql, [chatId])
+		#Close connection
+		conn.commit()
+		conn.close()
+
+	#Delete an element
+	def removeContact(self, chatId):
+		#Start connection
+		conn = sqlite3.connect(self.dbName)
+		cursor = conn.cursor()
+		self.logging.info("Db connected")
+		#Execute
+		sql = "DELETE FROM users where chat_id = ?"
+		if type(chatId) is not list:
+			chatId = [str(chatId)]
+		cursor.executemany(sql, [chatId])
+		#Close connection
+		conn.commit()
+		conn.close()
 
 	#Retrieve all the users
 	def getContacts(self):
+		#Start connection
+		conn = sqlite3.connect(self.dbName)
+		cursor = conn.cursor()
+		self.logging.info("Db connected")
+		#Execute
 		sql = "SELECT * FROM users"
-		return self.cursor.execute(insertValues)
+		c_list = cursor.execute(sql)
+		c_list = c_list.fetchall()
+		#Close connection
+		conn.commit()
+		conn.close()
+		return c_list
