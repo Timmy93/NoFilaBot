@@ -105,8 +105,6 @@ venv.bak/
 .mypy_cache/
 
 #Ignore my personal settings
-Settings/local_settings.json
-Settings/server_settings.json
-Settings/monitored_market.json
-Settings/myContactList.json
+Settings/*.json
+Settings/*.db
 temp/*
