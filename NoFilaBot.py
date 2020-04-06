@@ -223,7 +223,7 @@ class NoFilaBot:
 	def sendNotify(self, user, info):
 		self.logging.info('Sending update to: '+str(user))
 		if info['id'] in self.mySupermarketsList.keys():
-			nameToUse = self.mySupermarketsList[supermarket]
+			nameToUse = self.mySupermarketsList[+info['id']+]
 		else:
 			nameToUse = info['name']+"("+str(info['address'])+")"
 			
