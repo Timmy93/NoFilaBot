@@ -287,10 +287,14 @@ class NoFilaBot:
 		
 	#Stop the subscription to the bot
 	def stopHandler(self, update=None, context=None):
+		chat_id = update.effective_chat.id
 		self.logging.info("stopHandler - Bot stopped by: "+str(update.effective_chat))
-		if update.effective_chat.id in self.myContactList:
-			self.removeFromContactList(update.effective_chat.id)
-			self.logging.info("stopHandler - "+str(update.effective_chat.id)+" removed from contact list")
+		
+		if chat_id in self.myContactList:
+			self.removeFromContactList(chat_id)
+			self.logging.info("stopHandler - "+str(chat_id)+" removed from contact list")
+		else:
+			self.logging.warning("stopHandler - "+str(chat_id)+" not in contact list: "+str(self.myContactList))
 		update.message.reply_text("Va bene 👍, niente notifiche 🔕\nPremi 👉 /start per ricominciare ad essere aggiornato 🔔")
 	
 	#Used to report the supermarket queue status
