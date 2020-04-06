@@ -91,6 +91,7 @@ class NoFilaBot:
 	
 	#Add a contact to the contact list
 	def addToContactList(self, user):
+		user = str(user)
 		self.myContactList.append(user)
 		if self.localParameters['json_db']:
 			self.dumpContactList()
@@ -102,6 +103,7 @@ class NoFilaBot:
 	
 	#Remove a contact from the contact list
 	def removeFromContactList(self, user):
+		user = str(user)
 		self.logging.info("removeFromContactList - Element before: "+str(len(self.myContactList)))
 		self.myContactList.remove(user)
 		self.logging.info("removeFromContactList - Element after: "+str(len(self.myContactList)))
@@ -287,7 +289,7 @@ class NoFilaBot:
 		
 	#Stop the subscription to the bot
 	def stopHandler(self, update=None, context=None):
-		chat_id = update.effective_chat.id
+		chat_id = str(update.effective_chat.id)
 		self.logging.info("stopHandler - Bot stopped by: "+str(update.effective_chat))
 		
 		if chat_id in self.myContactList:
