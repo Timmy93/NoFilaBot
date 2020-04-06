@@ -102,7 +102,9 @@ class NoFilaBot:
 	
 	#Remove a contact from the contact list
 	def removeFromContactList(self, user):
+		self.logging.info("removeFromContactList - Element before: "+str(len(self.myContactList)))
 		self.myContactList.remove(user)
+		self.logging.info("removeFromContactList - Element after: "+str(len(self.myContactList)))
 		if self.localParameters['json_db']:
 			self.dumpContactList()
 		else:
