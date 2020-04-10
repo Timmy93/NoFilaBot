@@ -253,7 +253,8 @@ class NoFilaBot:
 		except telegram.error.BadRequest:
 			self.logging.error("Cannot send message to chat ["+str(chat)+"] - Skip")
 		except telegram.error.Unauthorized:
-			self.logging.error("Bot blocked by chat ["+str(chat)+"] - Skip")
+			self.logging.info("Bot blocked by chat ["+str(chat)+"] - Remove user")
+			self.removeFromContactList(chat)
 	
 	#Define the approriate handlers
 	def createHandlers(self):
